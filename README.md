@@ -9,7 +9,7 @@ This repository is the full-stack template and complete codebase for **Servance*
 
 ## Features Included
 - **Client-Side Scalability**: Contains a high-performance memory generator that stress-tests the UI perfectly with 1000 dynamically related records (Customers + Devices + Service Logs).
-- **Automated Service Architecture**: Automatically calculates next-due service dates on intervals, pushing SQL triggers directly to the email worker.
+- **Automated Service Architecture**: Automatically calculates next-due service dates on intervals, pushing SQL triggers directly to the edge worker to dispatch Resend Emails and AWS SNS Text Messages.
 - **Premium SaaS UI**: Vibrant, responsive layout with embedded, real-time search logic across all application arrays.
 
 ## Deploying

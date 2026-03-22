@@ -1,8 +1,16 @@
 // @ts-nocheck
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { SNSClient, PublishCommand } from "npm:@aws-sdk/client-sns@3.490.0"
 
+// API Keys
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
+
+// AWS SNS Config (Automatically uses AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from env)
+const snsClient = new SNSClient({
+    region: Deno.env.get('AWS_REGION') || 'us-east-1',
+})
+
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 
@@ -23,7 +31,8 @@ serve(async (req: Request) => {
           device_name,
           customers (
             name,
-            email
+            email,
+            phone
           )
         )
       `)
@@ -49,12 +58,14 @@ serve(async (req: Request) => {
 
         const sentIds = []
 
-        // 2. Process and send emails
+        // 2. Process and send emails & SMS
         for (const reminder of dueReminders) {
             const customerEmail = reminder.devices.customers.email
             const customerName = reminder.devices.customers.name
+            const customerPhone = reminder.devices.customers.phone
             const deviceName = reminder.devices.device_name
 
+            // --- A. SEND EMAIL VIA RESEND ---
             const res = await fetch('https://api.resend.com/emails', {
                 method: 'POST',
                 headers: {
@@ -75,10 +86,36 @@ serve(async (req: Request) => {
                 })
             })
 
+            let emailSent = false
             if (res.ok) {
-                sentIds.push(reminder.id)
+                emailSent = true
             } else {
                 console.error('Failed to send email to', customerEmail, await res.text())
+            }
+
+            // --- B. SEND SMS OUTBOUND VIA AWS SNS ---
+            // Ensure AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY are set in Supabase Secrets
+            let smsSent = false
+            try {
+                if (customerPhone && Deno.env.get('AWS_ACCESS_KEY_ID')) {
+                    const snsMessage = `Servance: Friendly reminder, your AC Unit (${deviceName}) is due for service on ${reminder.next_service_date}. Reply to schedule!`
+
+                    const command = new PublishCommand({
+                        Message: snsMessage,
+                        PhoneNumber: customerPhone,
+                    });
+
+                    await snsClient.send(command);
+                    smsSent = true;
+                    console.log(`Successfully sent SMS to ${customerPhone}`);
+                }
+            } catch (snsErr) {
+                console.error('Failed to send AWS SNS SMS to', customerPhone, snsErr)
+            }
+
+            // Mark as sent if either delivered successfully
+            if (emailSent || smsSent) {
+                sentIds.push(reminder.id)
             }
         }
 
